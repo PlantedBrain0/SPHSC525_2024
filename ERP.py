@@ -1,95 +1,115 @@
-import mne 
+import mne
 from mne import events_from_annotations
 import numpy as np
 import matplotlib.pyplot as plt
+import glob
 
 ss01_raw_path = '/Users/user/Desktop/SPHSC525/EEG/SS01/SS01-SR-02082016-cnt.cnt'
 ss01_raw = mne.io.read_raw_cnt(ss01_raw_path, preload = True)
 # Convert annotations to events
 events, event_dict = events_from_annotations(ss01_raw)
-#events = mne.find_events(ss01_raw, stim_channel="STI 014"); weird, they don't have STI 014 channel
+#events = mne.find_events(ss01_raw, stim_channel="STI 014")
+
+print(events)  # show the first 5
 
 # Plot events on raw data to visualize event markers
-mne.viz.plot_events(events, sfreq=ss01_raw.info['sfreq']) #it's weird
+mne.viz.plot_events(events, sfreq=ss01_raw.info['sfreq'])
 
 # Print event dictionary (mapping of event names to event codes)
 print(event_dict)
 
-print(events[:30])  # it's weird; it's not properly coded
+print(events[:30])  # show the first 5
 
-baseline = (None, 0)  # Baseline correction period (from start of epoch to 0 seconds)
-epochs = mne.Epochs(ss01_raw, events, event_id={'SentenceOnset': 1}, tmin=-1.0, tmax=1.5, baseline= baseline, preload=True)
 
-# Apply independent component analysis (ICA) to remove artifacts
-ica = mne.preprocessing.ICA(n_components=20, random_state=42)
-ica.fit(epochs)
+# Manually define event IDs for congruent and incongruent trials
+event_id = {'203': 1, '207': 2}
 
-# Plot ICA components
-ica.plot_components()
+# Check if the specified event IDs are present in the event_dict
+if all(key in event_dict for key in event_id.keys()):
+    # Create epochs around congruent and incongruent events with baseline correction
+    epochs_congruent = mne.Epochs(ss01_raw, events, event_id=event_id['203'], tmin=-1.0, tmax=2.5, baseline=(-1.0, 0), preload=True)
+    epochs_incongruent = mne.Epochs(ss01_raw, events, event_id=event_id['207'], tmin=-1.0, tmax=2.5, baseline=(-1.0, 0), preload=True)
 
-# Manually select components for exclusion based on artifact patterns
-# Replace 'ica.exclude' with indices of components to exclude (e.g., [0, 1, 2])
-ica.exclude = [0, 1, 2]
-epochs_cleaned = epochs.copy().apply_ica(ica)
+    # Get the Cz channel index
+    cz_index = epochs_congruent.info['ch_names'].index('Cz')
 
-# Re-reference epochs to the average of the mastoids (M1, M2)
-epochs_cleaned.set_eeg_reference('average', projection=True)
+    # Get the average ERP for congruent and incongruent trials at Cz
+    erp_congruent = epochs_congruent.average(picks=[cz_index]).data[0] * 1e6  # Convert to microvolts
+    erp_incongruent = epochs_incongruent.average(picks=[cz_index]).data[0] * 1e6  # Convert to microvolts
 
-# Apply baseline correction (using the 200 ms before the time-locking point as baseline)
-epochs_cleaned.apply_baseline(baseline=(-0.2, 0), mode='mean')
+    # Create time array for x-axis
+    times = epochs_congruent.times
 
-# Apply low-pass filter to the dataset
-epochs_cleaned.filter(l_freq=None, h_freq=35, method='iir', verbose=True)
+    # Plot the ERP
+    plt.figure(figsize=(8, 6))
+    plt.plot(times, erp_congruent, label='Sentences without errors')
+    plt.plot(times, erp_incongruent, label='Sentences with errors')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Amplitude (µV)')
+    plt.title('ERP at Cz for Participant ss01')
+    plt.axvline(x=0, color='black', linestyle='--', label='Error onset')
+    plt.ylim(np.min([erp_congruent, erp_incongruent]), np.max([erp_congruent, erp_incongruent]))  # Adjust y-axis limits based on data
+    plt.legend()
+    plt.grid()
+    plt.show()
+else:
+    print("Specified event IDs not found in the event dictionary.")
+    
 
-# Remove epochs with remaining artifacts
-reject_criteria = dict(eeg=1000e-6, reject=dict(eeg=4))  # Artifact rejection criteria
-epochs_cleaned.drop_bad(reject=reject_criteria)
 
-# Average epochs within sentence types for each participant
-epochs_average = epochs_cleaned.average()
+#group average
+participant_dirs = glob.glob('/Users/user/Desktop/SPHSC525/EEG/SS*')
+event_id = {'203': 1, '207': 2}
 
-# Plot grand average ERPs across participants
-epochs_average.plot_joint()
+erp_congruent_all = []
+erp_incongruent_all = []
 
-# Save preprocessed epochs and average data
-epochs_cleaned.save('/Users/user/Desktop/SPHSC525/EEG/SS01/preprocessed_epochs.fif')  # Save preprocessed epochs
-epochs_average.save('/Users/user/Desktop/SPHSC525/EEG/SS01/average_epochs.fif')        # Save average epochs
+for participant_dir in participant_dirs:
+    cnt_file = glob.glob(f'{participant_dir}/*-cnt.cnt')[0]
+    raw = mne.io.read_raw_cnt(cnt_file, preload=True)
 
-# Load preprocessed epochs data for one participant (replace 'path_to_epochs_file.fif' with your file path)
-epochs = mne.read_epochs('path_to_epochs_file.fif')
+    # Convert annotations to events
+    events, event_dict = events_from_annotations(raw)
 
-# Select data for Cz electrode
-electrode = 'Cz'
-epochs_cz = epochs.copy().pick_channels([electrode])
+    # Check if the specified event IDs are present in the event_dict
+    if all(key in event_dict for key in event_id.keys()):
+        # Create epochs around congruent and incongruent events with baseline correction
+        epochs_congruent = mne.Epochs(raw, events, event_id=event_id['203'], tmin=-1.0, tmax=2.5, baseline=(-1.0, 0), preload=True)
+        epochs_incongruent = mne.Epochs(raw, events, event_id=event_id['207'], tmin=-1.0, tmax=2.5, baseline=(-1.0, 0), preload=True)
 
-# Plot ERP for syntactically-acceptable sentences (condition: 1)
-condition_acceptable = 'syntactically-acceptable'
-epochs_acceptable = epochs_cz[condition_acceptable]
-erp_acceptable = epochs_acceptable.average()
+        # Get the Cz channel index
+        cz_index = epochs_congruent.info['ch_names'].index('Cz')
 
-# Plot ERP for sentences with syntax errors (condition: 2)
-condition_error = 'syntax-error'
-epochs_error = epochs_cz[condition_error]
-erp_error = epochs_error.average()
+        # Get the average ERP for congruent and incongruent trials at Cz
+        erp_congruent = epochs_congruent.average(picks=[cz_index]).data[0] * 1e6  # Convert to microvolts
+        erp_incongruent = epochs_incongruent.average(picks=[cz_index]).data[0] * 1e6  # Convert to microvolts
 
-# Plot individual ERPs for one participant at Cz electrode
-plt.figure(figsize=(10, 6))
-plt.plot(erp_acceptable.times, erp_acceptable.data[0], label='Syntactically Acceptable', color='blue')
-plt.plot(erp_error.times, erp_error.data[0], label='Syntax Error', color='red')
-plt.axvline(x=0, color='k', linestyle='--')  # Mark onset of error at time 0
+        erp_congruent_all.append(erp_congruent)
+        erp_incongruent_all.append(erp_incongruent)
+
+    else:
+        print(f"Specified event IDs not found in the event dictionary for participant {participant_dir}.")
+
+# Create time array for x-axis
+times = epochs_congruent.times
+
+# Calculate the average ERP across all participants
+erp_congruent_avg = np.mean(erp_congruent_all, axis=0)
+erp_incongruent_avg = np.mean(erp_incongruent_all, axis=0)
+
+# Plot the average ERP
+plt.figure(figsize=(8, 6))
+plt.plot(times, erp_congruent_avg, label='Sentences without errors')
+plt.plot(times, erp_incongruent_avg, label='Sentences with errors')
 plt.xlabel('Time (s)')
-plt.ylabel('Amplitude (uV)')
-plt.title(f'ERP at {electrode} Electrode for Participant')
+plt.ylabel('Amplitude (µV)')
+plt.title('Average ERP at Cz for All Participants')
+plt.axvline(x=0, color='black', linestyle='--', label='Error onset')
+plt.ylim(np.min([erp_congruent_avg, erp_incongruent_avg]), np.max([erp_congruent_avg, erp_incongruent_avg]))  # Adjust y-axis limits based on data
 plt.legend()
+plt.grid()
 plt.show()
 
-# Plot average ERPs for syntactically-acceptable sentences vs sentences with syntax errors
-plt.figure(figsize=(10, 6))
-plt.plot(erp_acceptable.times, erp_acceptable.data[0], label='Syntactically Acceptable', color='blue')
-plt.plot(erp_error.times, erp_error.data[0], label='Syntax Error', color='red')
-plt.axvline(x=0, color='k', linestyle='--')  # Mark onset of error at time 0
-plt.xlabel('Time (s)')
-plt.ylabel('Amplitude (uV)')
-plt.title(f'Average ERPs at {electrode} Electrode')
-plt.legend()
-plt.show()
+
+
+
