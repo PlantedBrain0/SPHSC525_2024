@@ -18,3 +18,7 @@
 #A ~1 page summary of your results:
     #Plot of ERP from Cz for one participant, average of sentences without errors and average of sentences with errors. X-axis should be time and y-axis amplitude. Negative amplitude on y-axis can be down or up (EEG convention), but should be marked. X-axis should have 0 marked as onset of error.
     #Plot of average ERP from Cz for ALL participants, average of sentences without errors and average of sentences with errors. 
+    
+    
+    
+#Download the data from here: https://drive.google.com/drive/folders/1CTvYDofZw5XWIGAhZuX2O8XgiDe5C2j0?usp=sharing
